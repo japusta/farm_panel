@@ -1,0 +1,6 @@
+@echo off
+echo Запуск Steam в песочнице...
+"C:\Program Files\Avast Software\Avast\sbox.exe" /run "C:\Program Files (x86)\Steam\steam.exe" -login ваш_логин ваш_пароль
+timeout /t 30
+echo Если Steam запустился - проверьте в трее Avast иконку песочницы
+pause

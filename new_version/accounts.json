@@ -1,0 +1,17 @@
+[
+  {
+    "proxifier_path": "D:/Proxifier/Proxifier.exe",
+    "proxifier_profile": "C:/Users/capta/AppData/Roaming/Proxifier4/Profiles/farm1.ppx",
+    "steam_path": "D:/Steam/steam.exe",
+    "username": "4dplesenb",
+    "password": "Turuzmo3549!",
+    "use_avast": false,
+    "type_credentials": true,
+    "box_name": "DefaultBox1",
+    "status": "Stopped",
+    "last_run": "",
+    "total_time": 0,
+    "cases_dropped": 0,
+    "xp_earned": 0
+  }
+]

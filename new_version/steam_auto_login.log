@@ -1,0 +1,52 @@
+2025-08-13 12:45:30,116 - INFO - Начало авторизации в Steam
+2025-08-13 12:45:30,121 - INFO - Окно Steam активировано
+2025-08-13 12:45:32,118 - ERROR - Ошибка при авторизации:
+Traceback (most recent call last):
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 60, in steam_login
+    login_field = wait_for_element('steam_login_field.png', timeout=15)
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 25, in wait_for_element
+    position = pyautogui.locateOnScreen(image_path, confidence=confidence)
+  File "C:\Users\capta\AppData\Roaming\Python\Python313\site-packages\pyautogui\__init__.py", line 228, in _couldNotImportPyScreeze
+    raise PyAutoGUIException(
+        "PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call."
+    )
+pyautogui.PyAutoGUIException: PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call.
+2025-08-13 13:06:33,919 - INFO - Начало авторизации в Steam
+2025-08-13 13:06:33,921 - INFO - Окно Steam активировано
+2025-08-13 13:06:35,761 - ERROR - Ошибка при авторизации:
+Traceback (most recent call last):
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 60, in steam_login
+    login_field = wait_for_element('steam_login_field.png', timeout=15)
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 25, in wait_for_element
+    position = pyautogui.locateOnScreen(image_path, confidence=confidence)
+  File "C:\Users\capta\AppData\Roaming\Python\Python313\site-packages\pyautogui\__init__.py", line 228, in _couldNotImportPyScreeze
+    raise PyAutoGUIException(
+        "PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call."
+    )
+pyautogui.PyAutoGUIException: PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call.
+2025-08-13 13:06:42,068 - INFO - Начало авторизации в Steam
+2025-08-13 13:06:42,070 - INFO - Окно Steam активировано
+2025-08-13 13:06:43,919 - ERROR - Ошибка при авторизации:
+Traceback (most recent call last):
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 60, in steam_login
+    login_field = wait_for_element('steam_login_field.png', timeout=15)
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 25, in wait_for_element
+    position = pyautogui.locateOnScreen(image_path, confidence=confidence)
+  File "C:\Users\capta\AppData\Roaming\Python\Python313\site-packages\pyautogui\__init__.py", line 228, in _couldNotImportPyScreeze
+    raise PyAutoGUIException(
+        "PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call."
+    )
+pyautogui.PyAutoGUIException: PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call.
+2025-08-13 13:15:13,345 - INFO - Начало авторизации в Steam
+2025-08-13 13:15:13,347 - INFO - Окно Steam активировано
+2025-08-13 13:15:14,406 - ERROR - Ошибка при авторизации:
+Traceback (most recent call last):
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 60, in steam_login
+    login_field = wait_for_element('steam_login_field.png', timeout=15)
+  File "C:\Users\capta\Desktop\farm_scripts\new_version\steam_auto_login.py", line 25, in wait_for_element
+    position = pyautogui.locateOnScreen(image_path, confidence=confidence)
+  File "C:\Users\capta\AppData\Roaming\Python\Python313\site-packages\pyautogui\__init__.py", line 228, in _couldNotImportPyScreeze
+    raise PyAutoGUIException(
+        "PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call."
+    )
+pyautogui.PyAutoGUIException: PyAutoGUI was unable to import pyscreeze. (This is likely because you're running a version of Python that Pillow (which pyscreeze depends on) doesn't support currently.) Please install this module to enable the function you tried to call.
