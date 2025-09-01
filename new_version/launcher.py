@@ -1,7 +1,3 @@
-# launcher.py
-# Запуск Steam/CS2 (по аккаунту) строго через Sandboxie, с автологином и IMAP Steam Guard.
-# Возвращает subprocess.Popen для внешнего менеджмента процессов.
-
 import os
 import subprocess
 import time
@@ -14,6 +10,7 @@ import traceback
 import socket
 import ssl
 from typing import Optional, Tuple
+import threading  
 
 # === зависимости для ввода и поиска окна ===
 try:
@@ -53,7 +50,7 @@ class ToolPaths:
         memreduct_exe: str = "",
         bes_exe: str = "",
         asf_exe: str = "",
-        sandboxie_start: str = "",   # путь к Sandboxie Start.exe
+        sandboxie_start: str = "",   # путь к Sandboxie-Plus\Start.exe
     ):
         self.proxifier_exe = proxifier_exe
         self.avast_sandbox = avast_sandbox
@@ -86,6 +83,50 @@ def run_asf_send_all(paths: ToolPaths):
 
 
 # ================== ОКНО STEAM ==================
+
+def _set_topmost(hwnd, on=True) -> bool:
+    """Делает окно топ-модальным (поверх всех) или снимает этот флаг."""
+    if not HAVE_WIN32 or not hwnd:
+        return False
+    try:
+        win32gui.SetWindowPos(
+            hwnd,
+            win32con.HWND_TOPMOST if on else win32con.HWND_NOTOPMOST,
+            0, 0, 0, 0,
+            win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _wait_for_steam_guard_window(timeout: float = 180.0):
+    """
+    Ждём появления окна/заголовка с признаками Steam Guard.
+    Возвращает HWND или None по таймауту.
+    """
+    if not HAVE_WIN32:
+        time.sleep(8)  # без win32 просто ждём
+        return None
+
+    t0 = time.time()
+    keywords = ("guard", "код", "code", "auth", "verify", "security", "steam guard")
+    while time.time() - t0 < timeout:
+        found = []
+
+        def cb(h, _):
+            if win32gui.IsWindowVisible(h):
+                t = (win32gui.GetWindowText(h) or "").lower()
+                if "steam" in t and any(k in t for k in keywords):
+                    found.append(h)
+
+        win32gui.EnumWindows(cb, None)
+        if found:
+            return found[0]
+        time.sleep(0.5)
+    return None
+
+
 
 def _find_steam_hwnd(timeout: float = 60.0) -> Optional[int]:
     """Ждём появления видимого окна Steam и возвращаем HWND."""
@@ -437,11 +478,12 @@ def start_with_proxifier_and_steam(
     steam_exe: str,
     username: str,
     password: str,
-    use_avast_sandbox: bool = False,   # оставлен для совместимости, игнорируется
+    use_avast_sandbox: bool = False,   # для совместимости, игнорируется
     width: int = 1280,
     height: int = 720,
     windowed: bool = True,
     type_credentials: bool = True,
+    steam_topmost: bool = True,   # <-- НОВОЕ: держать окно Steam поверх всех
 
     # калибровка координат логин/пароль/кнопка — даём пользователю навести мышь
     hover_capture_seconds: int = 5,
@@ -502,9 +544,23 @@ def start_with_proxifier_and_steam(
     proc = subprocess.Popen(launch_cmd)
 
     # Ждём окно → активируем (не критично, если не нашли)
+    # hwnd = _find_steam_hwnd(timeout=60.0)
+    # if hwnd:
+    #     _activate_hwnd(hwnd)
+    # else:
+    #     _msg("Steam", "Окно Steam не найдено за 60 секунд. Продолжаю без активации окна.")
     hwnd = _find_steam_hwnd(timeout=60.0)
     if hwnd:
         _activate_hwnd(hwnd)
+        if steam_topmost:
+            _set_topmost(hwnd, True)
+            # маленький «кипер», чтобы статус TOPMOST не слетел в первые секунды
+            def _keeper(h):
+                t0 = time.time()
+                while time.time() - t0 < 60:
+                    _set_topmost(h, True)
+                    time.sleep(2)
+            threading.Thread(target=_keeper, args=(hwnd,), daemon=True).start()
     else:
         _msg("Steam", "Окно Steam не найдено за 60 секунд. Продолжаю без активации окна.")
 
@@ -537,13 +593,26 @@ def start_with_proxifier_and_steam(
     print("[IMAP-GATE] imap_password_set =", bool(imap_password and imap_password.strip()))
 
     if enable_email_guard and _is_set(imap_host) and _is_set(imap_login) and _is_set(imap_password):
-        time.sleep(6)
-        try:
-            code_x, code_y = capture_code_field_coord(seconds=5)
-        except Exception as e:
-            print(f"[IMAP] Не удалось получить координату поля кода: {e}")
-            return proc
+        # 1) ждём появления окна Steam Guard (чтобы поле точно существовало)
+        guard_hwnd = _wait_for_steam_guard_window(timeout=max(60, imap_timeout // 2))
+        if guard_hwnd:
+            _activate_hwnd(guard_hwnd)
+            if steam_topmost:
+                _set_topmost(guard_hwnd, True)
+            try:
+                code_x, code_y = capture_code_field_coord(seconds=5)
+            except Exception as e:
+                print(f"[IMAP] Не удалось получить координату поля кода: {e}")
+                return proc
+        else:
+            print("[IMAP] Окно Steam Guard не обнаружено по таймауту. Попробую всё равно обработать код в активном окне.")
+            try:
+                code_x, code_y = capture_code_field_coord(seconds=5)
+            except Exception as e:
+                print(f"[IMAP] Не удалось получить координату поля кода (fallback): {e}")
+                return proc
 
+        # 2) читаем письмо и вводим код
         _msg("Код Steam", "Ищу письмо от Steam. Это может занять до 2 минут…")
 
         code = fetch_steam_email_code_imap(
@@ -559,6 +628,7 @@ def start_with_proxifier_and_steam(
             _msg("Код Steam", f"Код «{code}» введён.")
         else:
             _msg("Код Steam", "Не удалось получить код из почты за отведённое время.")
+
     else:
         reasons = []
         if not enable_email_guard: reasons.append("enable_email_guard=False")
@@ -569,40 +639,3 @@ def start_with_proxifier_and_steam(
 
     print("Лаунчер завершил работу (основная последовательность).")
     return proc
-
-
-# ---------- пример использования ----------
-if __name__ == "__main__":
-    paths = ToolPaths(
-        proxifier_exe=r"C:\Program Files\Proxifier\Proxifier.exe",
-        avast_sandbox=r"C:\Program Files\AVAST Software\Avast\AvastSbox.exe",
-        memreduct_exe=r"C:\Program Files\Mem Reduct\memreduct.exe",
-        bes_exe=r"C:\Program Files\BES\BES.exe",
-        asf_exe=r"C:\ASF\ArchiSteamFarm.exe",
-        sandboxie_start=r"D:\Sandboxie-Plus\Start.exe",
-    )
-
-    # Пример: запуск в песочнице acc_1; IMAP выключен
-    start_with_proxifier_and_steam(
-        paths=paths,
-        proxifier_profile_ppx=r"C:\path\to\profile.ppx",
-        steam_exe=r"D:\Steam\Steam.exe",
-        username="login_here",
-        password="password_here",
-        use_avast_sandbox=False,
-        width=960,
-        height=540,
-        windowed=True,
-        type_credentials=False,
-        enable_email_guard=True,
-        imap_host="imap.gmail.com",
-        imap_login="captainvacq@gmail.com",
-        imap_password="oesdncouhmcbckro",   # для Gmail — пароль приложения
-        imap_folder="INBOX",
-        imap_timeout=120,
-        imap_poll_interval=25,
-        box_name="acc_1",
-        require_sandbox=True,
-    )
-
-

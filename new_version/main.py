@@ -1,4 +1,8 @@
-# main.py
+# main.py — менеджер фермы (PyQt5)
+# — редактирование аккаунтов (диалог + предзаполнение)
+# — обязательный запуск через Sandboxie (Start.exe + box_name)
+# — IMAP-поля в аккаунте и передача в launcher
+# — кнопки Старт/Стоп/Изм. в каждой строке и быстрые «Старт все»/«Стоп все»
 
 import os
 import sys
@@ -7,7 +11,7 @@ import time
 import threading
 from datetime import datetime
 
-import psutil  # для проверки cs2.exe
+import psutil  # проверка наличия cs2.exe
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QPushButton,
@@ -28,11 +32,10 @@ from launcher import (
 CONFIG_PATH = "accounts.json"
 
 
+# ============================ БОТОВЫЙ ПОТОК ============================
+
 class BotThread(threading.Thread):
-    """
-    Фоновый поток «поведения» бота для одного аккаунта.
-    Заходит в матч, имитирует активность, выходит и по кругу.
-    """
+    """Фоновый поток поведения бота под конкретный аккаунт/бокс."""
     def __init__(self, stop_flag, window_title_hint="counter-strike 2",
                  startup_delay_sec=60, wait_for_cs2=True, play_minutes=10):
         super().__init__(daemon=True)
@@ -52,7 +55,7 @@ class BotThread(threading.Thread):
         return False
 
     def run(self):
-        # 1) ждём появления cs2.exe (чтобы не мешать логину/guard)
+        # 1) ждём, пока игра запустится (чтобы не мешать логину и guard)
         if self.wait_for_cs2:
             t0 = time.time()
             while not self.stop_flag.is_set() and time.time() - t0 < 900:
@@ -60,12 +63,12 @@ class BotThread(threading.Thread):
                     break
                 time.sleep(1.5)
 
-        # 2) дополнительная пауза перед началом действий
+        # 2) безопасная пауза перед началом действий
         t1 = time.time()
         while not self.stop_flag.is_set() and time.time() - t1 < self.startup_delay_sec:
             time.sleep(0.5)
 
-        # 3) основной цикл: матч -> играем -> выходим -> повтор
+        # 3) основной цикл: найти матч → поиграть → выйти → повтор
         while not self.stop_flag.is_set():
             try:
                 if self.bot.ensure_in_match(search_timeout=240):
@@ -79,16 +82,19 @@ class BotThread(threading.Thread):
                 time.sleep(2.0)
 
 
+# ============================ ДИАЛОГ АККАУНТА ============================
+
 class AccountDialog(QDialog):
     def __init__(self, parent=None, initial: dict | None = None):
         super().__init__(parent)
         self.setWindowTitle("Добавить/изменить аккаунт")
-        self.resize(560, 420)
+        self.resize(620, 520)
         self._build()
         if initial:
             self.set_data(initial)
 
     def _build(self):
+        # пути
         self.le_proxifier = QLineEdit()
         self.btn_browse_prox = QPushButton("...")
         self.btn_browse_prox.clicked.connect(self._pick_proxifier)
@@ -101,14 +107,24 @@ class AccountDialog(QDialog):
         self.btn_browse_steam = QPushButton("...")
         self.btn_browse_steam.clicked.connect(self._pick_steam)
 
+        # учётные данные
         self.le_login = QLineEdit()
-        self.le_pass = QLineEdit()
-        self.le_pass.setEchoMode(QLineEdit.Password)
+        self.le_pass = QLineEdit(); self.le_pass.setEchoMode(QLineEdit.Password)
 
-        self.cb_avast = QCheckBox("Запускать через Avast Sandbox")
-        self.cb_type = QCheckBox("Фолбэк: печатать логин/пароль")
+        # режимы
+        self.cb_avast = QCheckBox("Запускать через Avast Sandbox (игнорируется при Sandboxie)")
+        self.cb_type = QCheckBox("Печатать логин/пароль (pyautogui)")
 
-        self.le_box = QLineEdit()  # имя песочницы Sandboxie (например acc_1)
+        # Sandboxie
+        self.le_box = QLineEdit(); self.le_box.setPlaceholderText("acc_1")
+
+        # IMAP / Steam Guard
+        self.cb_guard = QCheckBox("Вводить код из e-mail (IMAP)")
+        self.le_imap_host = QLineEdit();  self.le_imap_host.setPlaceholderText("imap.gmail.com")
+        self.le_imap_login = QLineEdit(); self.le_imap_login.setPlaceholderText("your@gmail.com")
+        self.le_imap_pass  = QLineEdit(); self.le_imap_pass.setEchoMode(QLineEdit.Password)
+        self.le_imap_pass.setPlaceholderText("пароль приложения")
+        self.le_imap_folder = QLineEdit(); self.le_imap_folder.setText("INBOX")
 
         form = QFormLayout()
         row = QWidget(); hl = QHBoxLayout(row); hl.addWidget(self.le_proxifier); hl.addWidget(self.btn_browse_prox)
@@ -126,6 +142,13 @@ class AccountDialog(QDialog):
         form.addRow("", self.cb_avast)
         form.addRow("", self.cb_type)
 
+        # блок IMAP
+        form.addRow("", self.cb_guard)
+        form.addRow("IMAP host", self.le_imap_host)
+        form.addRow("IMAP login", self.le_imap_login)
+        form.addRow("IMAP password", self.le_imap_pass)
+        form.addRow("IMAP folder", self.le_imap_folder)
+
         self.btn_ok = QPushButton("Сохранить")
         self.btn_ok.clicked.connect(self.accept)
 
@@ -133,30 +156,37 @@ class AccountDialog(QDialog):
         v.addLayout(form)
         v.addWidget(self.btn_ok)
 
+    # helpers
+
+    def _pick_proxifier(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Proxifier.exe", "", "Executable (*.exe)")
+        if path: self.le_proxifier.setText(path)
+
+    def _pick_profile(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Профиль Proxifier", "", "Profiles (*.ppx)")
+        if path: self.le_profile.setText(path)
+
+    def _pick_steam(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Steam.exe", "", "Executable (*.exe)")
+        if path: self.le_steam.setText(path)
+
+    # предзаполнение/сбор данных
+
     def set_data(self, acc: dict):
         self.le_proxifier.setText(acc.get("proxifier_path", ""))
         self.le_profile.setText(acc.get("proxifier_profile", ""))
         self.le_steam.setText(acc.get("steam_path", ""))
         self.le_login.setText(acc.get("username", ""))
-        self.le_pass.setText(acc.get("password", ""))  # да, храним в json как есть
+        self.le_pass.setText(acc.get("password", ""))
         self.cb_avast.setChecked(bool(acc.get("use_avast", False)))
         self.cb_type.setChecked(bool(acc.get("type_credentials", False)))
         self.le_box.setText(acc.get("box_name", ""))
 
-    def _pick_proxifier(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Proxifier.exe", "", "Executable (*.exe)")
-        if path:
-            self.le_proxifier.setText(path)
-
-    def _pick_profile(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Профиль Proxifier", "", "Profiles (*.ppx)")
-        if path:
-            self.le_profile.setText(path)
-
-    def _pick_steam(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Steam.exe", "", "Executable (*.exe)")
-        if path:
-            self.le_steam.setText(path)
+        self.cb_guard.setChecked(bool(acc.get("enable_email_guard", False)))
+        self.le_imap_host.setText(acc.get("imap_host", ""))
+        self.le_imap_login.setText(acc.get("imap_login", ""))
+        self.le_imap_pass.setText(acc.get("imap_password", ""))
+        self.le_imap_folder.setText(acc.get("imap_folder", "INBOX"))
 
     def get_data(self):
         return {
@@ -168,9 +198,16 @@ class AccountDialog(QDialog):
             "use_avast": self.cb_avast.isChecked(),
             "type_credentials": self.cb_type.isChecked(),
             "box_name": self.le_box.text().strip(),
+
+            "enable_email_guard": self.cb_guard.isChecked(),
+            "imap_host": self.le_imap_host.text().strip(),
+            "imap_login": self.le_imap_login.text().strip(),
+            "imap_password": self.le_imap_pass.text(),
+            "imap_folder": self.le_imap_folder.text().strip() or "INBOX",
         }
 
 
+# ============================ МЕНЕДЖЕР ============================
 
 class BotManager:
     def __init__(self):
@@ -178,21 +215,19 @@ class BotManager:
         self.processes = {}
         self.threads = {}
         self.tool_paths = ToolPaths()
+        self._autofind_sandboxie_start()
         self.load_accounts()
 
-    def update_account(self, idx: int, new_data: dict):
-        if not (0 <= idx < len(self.accounts)):
-            return
-        # переносим служебные поля, чтобы не потерять статистику
-        preserved = {
-            "status": self.accounts[idx].get("status", "Stopped"),
-            "last_run": self.accounts[idx].get("last_run", ""),
-            "total_time": self.accounts[idx].get("total_time", 0),
-            "cases_dropped": self.accounts[idx].get("cases_dropped", 0),
-            "xp_earned": self.accounts[idx].get("xp_earned", 0),
-        }
-        self.accounts[idx] = {**new_data, **preserved}
-        self.save_accounts()
+    def _autofind_sandboxie_start(self):
+        # небольшой автопоиск Start.exe
+        for p in [
+            r"C:\Program Files\Sandboxie-Plus\Start.exe",
+            r"C:\Program Files (x86)\Sandboxie-Plus\Start.exe",
+            r"D:\Sandboxie-Plus\Start.exe",
+        ]:
+            if os.path.exists(p):
+                self.tool_paths.sandboxie_start = p
+                break
 
     def load_accounts(self):
         if os.path.exists(CONFIG_PATH):
@@ -205,7 +240,14 @@ class BotManager:
             acc.setdefault("cases_dropped", 0)
             acc.setdefault("xp_earned", 0)
             acc.setdefault("type_credentials", False)
-            acc.setdefault("box_name", "")  # Sandboxie box
+            acc.setdefault("box_name", "")
+
+            # IMAP
+            acc.setdefault("enable_email_guard", False)
+            acc.setdefault("imap_host", "")
+            acc.setdefault("imap_login", "")
+            acc.setdefault("imap_password", "")
+            acc.setdefault("imap_folder", "INBOX")
 
     def save_accounts(self):
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -213,6 +255,19 @@ class BotManager:
 
     def add_account(self, acc):
         self.accounts.append(acc)
+        self.save_accounts()
+
+    def update_account(self, idx: int, new_data: dict):
+        if not (0 <= idx < len(self.accounts)):
+            return
+        preserved = {
+            "status": self.accounts[idx].get("status", "Stopped"),
+            "last_run": self.accounts[idx].get("last_run", ""),
+            "total_time": self.accounts[idx].get("total_time", 0),
+            "cases_dropped": self.accounts[idx].get("cases_dropped", 0),
+            "xp_earned": self.accounts[idx].get("xp_earned", 0),
+        }
+        self.accounts[idx] = {**new_data, **preserved}
         self.save_accounts()
 
     def remove_account(self, idx):
@@ -228,7 +283,7 @@ class BotManager:
             return
         acc = self.accounts[idx]
 
-        # жёсткие проверки песочницы
+        # требуем песочницу
         if not (self.tool_paths.sandboxie_start and os.path.exists(self.tool_paths.sandboxie_start)):
             print("[ERR] Sandboxie Start.exe не задан/не найден — запуск запрещён.")
             return
@@ -246,7 +301,14 @@ class BotManager:
             width=1280, height=720, windowed=True,
             type_credentials=acc.get("type_credentials", False),
             box_name=acc.get("box_name", ""),
-            require_sandbox=True,                  # принудительно через Sandboxie
+            require_sandbox=True,
+
+            # IMAP
+            enable_email_guard=acc.get("enable_email_guard", False),
+            imap_host=acc.get("imap_host", ""),
+            imap_login=acc.get("imap_login", ""),
+            imap_password=acc.get("imap_password", ""),
+            imap_folder=acc.get("imap_folder", "INBOX"),
         )
         self.processes[acc["username"]] = p
         acc["status"] = "Running"
@@ -272,7 +334,7 @@ class BotManager:
             self.threads[u][1].join(timeout=2)
             del self.threads[u]
 
-        # корректно завершаем песочницу, если есть box
+        # корректно завершаем песочницу (если возможно)
         box = acc.get("box_name", "")
         if box and self.tool_paths.sandboxie_start and os.path.exists(self.tool_paths.sandboxie_start):
             try:
@@ -283,7 +345,7 @@ class BotManager:
             except Exception:
                 pass
         else:
-            # если по каким-то причинам запускали не через песочницу
+            # если вдруг запускали не через песочницу
             if u in self.processes:
                 try:
                     if self.processes[u]:
@@ -295,7 +357,7 @@ class BotManager:
             del self.processes[u]
         self.accounts[idx]["status"] = "Stopped"
 
-    # системные утилиты (обёртки)
+    # обёртки системных утилит
     def run_memreduct(self):
         return run_memreduct(self.tool_paths)
 
@@ -306,39 +368,14 @@ class BotManager:
         return run_asf_send_all(self.tool_paths)
 
 
+# ============================ UI ============================
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.m = BotManager()
         self._build_ui()
         self._refresh()
-
-    def _edit(self, idx):
-        # если аккаунт запущен — сначала останавливаем, чтобы не было гонок
-        if self.m.accounts[idx].get("status") == "Running":
-            self._log(f"Аккаунт {self.m.accounts[idx]['username']} запущен — останавливаю перед редактированием.")
-            self._stop(idx)
-
-        acc = self.m.accounts[idx]
-        dlg = AccountDialog(self, initial=acc)
-        if dlg.exec_():
-            new_data = dlg.get_data()
-            if not new_data.get("box_name"):
-                self._log("ОШИБКА: укажи имя песочницы (box_name).")
-                return
-            if not all([new_data.get("steam_path"), new_data.get("username"), new_data.get("password")]):
-                self._log("ОШИБКА: проверь Steam.exe / логин / пароль.")
-                return
-
-            self.m.update_account(idx, new_data)
-            self._refresh()
-            self._log(f"Аккаунт обновлён: {new_data['username']} (box={new_data['box_name']})")
-
-    def _edit_selected(self):
-        rows = self.table.selectionModel().selectedRows()
-        for m in rows:
-            self._edit(m.row())
-
 
     def _build_ui(self):
         self.setWindowTitle("CS2 Bot Farm Manager")
@@ -350,21 +387,19 @@ class MainWindow(QMainWindow):
         )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
 
-        self.btn_add = QPushButton("Добавить аккаунт")
+        self.btn_add = QPushButton("Добавить")
         self.btn_del = QPushButton("Удалить")
+        self.btn_edit = QPushButton("Изменить")
         self.btn_start = QPushButton("Старт")
         self.btn_stop = QPushButton("Стоп")
-        self.btn_edit = QPushButton("Изменить")   # NEW
-
         self.btn_start_all = QPushButton("Старт все")
         self.btn_stop_all = QPushButton("Стоп все")
 
         self.btn_add.clicked.connect(self._add)
         self.btn_del.clicked.connect(self._del)
+        self.btn_edit.clicked.connect(self._edit_selected)
         self.btn_start.clicked.connect(self._start_selected)
         self.btn_stop.clicked.connect(self._stop_selected)
-        self.btn_edit.clicked.connect(self._edit_selected)  # NEW
-
         self.btn_start_all.clicked.connect(self._start_all)
         self.btn_stop_all.clicked.connect(self._stop_all)
 
@@ -382,7 +417,7 @@ class MainWindow(QMainWindow):
             lambda: self._log("ASF запущен" if self.m.run_asf_send_all() else "ASF не найден")
         )
 
-        # Поля путей инструментов
+        # пути инструментов
         self.le_prox = QLineEdit()
         self.le_sbie = QLineEdit()   # Sandboxie Start.exe
         self.le_avast = QLineEdit()
@@ -399,16 +434,19 @@ class MainWindow(QMainWindow):
         ]:
             le.setPlaceholderText(title)
 
+        # подставим найденный Start.exe
+        if self.m.tool_paths.sandboxie_start:
+            self.le_sbie.setText(self.m.tool_paths.sandboxie_start)
+
         self.btn_save_tools = QPushButton("Сохранить пути инструментов")
         self.btn_save_tools.clicked.connect(self._save_tools)
 
-        self.log = QTextEdit()
-        self.log.setReadOnly(True)
+        self.log = QTextEdit(); self.log.setReadOnly(True)
 
         top = QHBoxLayout()
         for b in (
-            self.btn_add, self.btn_del, self.btn_start, self.btn_stop,
-            self.btn_start_all, self.btn_stop_all,
+            self.btn_add, self.btn_del, self.btn_edit,
+            self.btn_start, self.btn_stop, self.btn_start_all, self.btn_stop_all,
             self.btn_memreduct, self.btn_bes, self.btn_asf,
         ):
             top.addWidget(b)
@@ -424,15 +462,13 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.table)
         lay.addWidget(self.log)
 
-        w = QWidget()
-        w.setLayout(lay)
+        w = QWidget(); w.setLayout(lay)
         self.setCentralWidget(w)
 
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._refresh)
-        self.table.cellDoubleClicked.connect(lambda r, c: self._edit(r))  # NEW
+        self.table.cellDoubleClicked.connect(lambda r, c: self._edit(r))
+        self.timer = QTimer(self); self.timer.timeout.connect(self._refresh); self.timer.start(3000)
 
-        self.timer.start(3000)
+    # === SYS ===
 
     def _save_tools(self):
         self.m.tool_paths = ToolPaths(
@@ -446,55 +482,72 @@ class MainWindow(QMainWindow):
         if not (self.m.tool_paths.sandboxie_start and os.path.exists(self.m.tool_paths.sandboxie_start)):
             self._log("ОШИБКА: укажи корректный путь к Sandboxie Start.exe — без него запуск запрещён.")
         else:
-            self._log("Пути инструментов сохранены (Sandboxie OK)")
+            self._log(f"Пути инструментов сохранены (Sandboxie OK): {self.m.tool_paths.sandboxie_start}")
 
-    def _log(self, msg):
-        self.log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+    def _log(self, msg): self.log.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+    def _fmt_time(self, s):
+        h = s // 3600; m = (s % 3600) // 60
+        return f"{h}ч {m}м"
+
+    # === TABLE ===
 
     def _refresh(self):
         self.table.setRowCount(len(self.m.accounts))
         for i, acc in enumerate(self.m.accounts):
-            self.table.setItem(i, 0, QTableWidgetItem(acc["username"]))
+            self.table.setItem(i, 0, QTableWidgetItem(acc.get("username", "")))
             self.table.setItem(i, 1, QTableWidgetItem(acc.get("status", "Stopped")))
             self.table.setItem(i, 2, QTableWidgetItem(acc.get("last_run", "")))
             self.table.setItem(i, 3, QTableWidgetItem(self._fmt_time(acc.get("total_time", 0))))
             self.table.setItem(i, 4, QTableWidgetItem(str(acc.get("cases_dropped", 0))))
             self.table.setItem(i, 5, QTableWidgetItem(str(acc.get("xp_earned", 0))))
 
-            cell = QWidget()
-            h = QHBoxLayout(cell)
-            h.setContentsMargins(0, 0, 0, 0)
-            b1 = QPushButton("Старт")
-            b2 = QPushButton("Стоп")
-            b3 = QPushButton("Изм.")
-
+            cell = QWidget(); h = QHBoxLayout(cell); h.setContentsMargins(0, 0, 0, 0)
+            b1 = QPushButton("Старт"); b2 = QPushButton("Стоп"); b3 = QPushButton("Изм.")
             b1.clicked.connect(lambda _, idx=i: self._start(idx))
             b2.clicked.connect(lambda _, idx=i: self._stop(idx))
-            b3.clicked.connect(lambda _, idx=i: self._edit(idx))  # NEW
-
-            h.addWidget(b1);
-            h.addWidget(b2);
-            h.addWidget(b3);
-
+            b3.clicked.connect(lambda _, idx=i: self._edit(idx))
+            h.addWidget(b1); h.addWidget(b2); h.addWidget(b3)
             self.table.setCellWidget(i, 6, cell)
 
-    @staticmethod
-    def _fmt_time(s):
-        h = s // 3600
-        m = (s % 3600) // 60
-        return f"{h}ч {m}м"
+    # === ACTIONS ===
 
     def _add(self):
         d = AccountDialog(self)
         if d.exec_():
             data = d.get_data()
             if not data.get("box_name"):
-                self._log("ОШИБКА: укажи имя песочницы (box_name) для аккаунта.")
+                self._log("ОШИБКА: укажи имя песочницы (box_name).")
                 return
             if all([data.get("steam_path"), data.get("username"), data.get("password")]):
                 self.m.add_account(data)
                 self._refresh()
                 self._log(f"Добавлен {data['username']} (box={data['box_name']})")
+
+    def _edit(self, idx):
+        if not (0 <= idx < len(self.m.accounts)):
+            return
+        if self.m.accounts[idx].get("status") == "Running":
+            self._log(f"Аккаунт {self.m.accounts[idx]['username']} запущен — останавливаю перед редактированием.")
+            self._stop(idx)
+        acc = self.m.accounts[idx]
+        dlg = AccountDialog(self, initial=acc)
+        if dlg.exec_():
+            new_data = dlg.get_data()
+            if not new_data.get("box_name"):
+                self._log("ОШИБКА: укажи имя песочницы (box_name).")
+                return
+            if not all([new_data.get("steam_path"), new_data.get("username"), new_data.get("password")]):
+                self._log("ОШИБКА: проверь Steam.exe / логин / пароль.")
+                return
+            self.m.update_account(idx, new_data)
+            self._refresh()
+            self._log(f"Аккаунт обновлён: {new_data['username']} (box={new_data['box_name']})")
+
+    def _edit_selected(self):
+        rows = self.table.selectionModel().selectedRows()
+        for m in rows:
+            self._edit(m.row())
 
     def _del(self):
         rows = self.table.selectionModel().selectedRows()
